@@ -45,7 +45,7 @@ describe('Controls', () => {
     )
     expect(screen.getByRole('button', { name: /home/i })).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /start sequence/i }),
+      screen.getByRole('button', { name: /^start$/i }),
     ).toBeInTheDocument()
   })
 
@@ -58,7 +58,7 @@ describe('Controls', () => {
     await user.click(screen.getByRole('button', { name: /home/i }))
     expect(home.mutate).toHaveBeenCalledTimes(1)
 
-    await user.click(screen.getByRole('button', { name: /start sequence/i }))
+    await user.click(screen.getByRole('button', { name: /^start$/i }))
     expect(start.mutate).toHaveBeenCalledTimes(1)
   })
 
@@ -66,7 +66,7 @@ describe('Controls', () => {
     renderWithQuery(
       <Controls state="Seq_movingToCube" moving={true} resumable={false} home={[0, 0, 0]} />,
     )
-    expect(screen.getByRole('button', { name: /start sequence/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^start$/i })).toBeDisabled()
   })
 
   it('enables Stop and triggers it while a sequence is running', async () => {
@@ -93,7 +93,7 @@ describe('Controls', () => {
       <Controls state="fault" moving={false} resumable={true} home={[0, 0, 0]} />,
     )
     // Start/Home/Stop are replaced by the stop-recovery controls.
-    expect(screen.queryByRole('button', { name: /start sequence/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^start$/i })).toBeNull()
     await user.click(screen.getByRole('button', { name: /resume/i }))
     expect(resume.mutate).toHaveBeenCalledTimes(1)
     await user.click(screen.getByRole('button', { name: /discard/i }))
@@ -105,6 +105,6 @@ describe('Controls', () => {
       <Controls state="fault" moving={false} resumable={false} home={[0, 0, 0]} />,
     )
     expect(screen.getByRole('button', { name: /home/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /start sequence/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^start$/i })).toBeDisabled()
   })
 })

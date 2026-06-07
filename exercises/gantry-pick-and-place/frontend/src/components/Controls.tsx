@@ -47,7 +47,7 @@ const Controls = ({ state, moving, resumable, home: homePos }: ControlsProps) =>
               onClick={() => start.mutate()}
               disabled={!isReady || busy}
             >
-              {start.isPending ? 'Starting...' : 'Start sequence'}
+              {start.isPending ? 'Starting...' : 'Start'}
             </button>
 
             <button
