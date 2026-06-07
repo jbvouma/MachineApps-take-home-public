@@ -19,6 +19,7 @@ const Controls = ({ state, moving, resumable, home: homePos }: ControlsProps) =>
 
   const isReady = state === 'ready'
   const isFault = state === 'fault'
+  const isHoming = state === 'Seq_homing'
   // Running = a sequence is in progress (neither idle nor faulted). Stopped = a fault
   // that came from a deliberate operator stop, so it can be resumed or discarded.
   const isRunning = !isReady && !isFault
@@ -53,7 +54,7 @@ const Controls = ({ state, moving, resumable, home: homePos }: ControlsProps) =>
               type="button"
               className="btn btn--danger"
               onClick={() => stop.mutate()}
-              disabled={!isRunning || stop.isPending}
+              disabled={!isRunning || isHoming || stop.isPending}
             >
               {stop.isPending ? 'Stopping...' : 'Stop'}
             </button>
@@ -89,7 +90,9 @@ const Controls = ({ state, moving, resumable, home: homePos }: ControlsProps) =>
             ? 'Sequence stopped. Resume to continue from where it halted, or discard it.'
             : isFault
               ? 'Clear the fault before issuing commands.'
-              : 'Sequence running. Press Stop to halt; it can be resumed afterwards.'}
+              : isHoming
+                ? 'Returning home. Wait for the robot to reach its home position.'
+                : 'Sequence running. Press Stop to halt; it can be resumed afterwards.'}
       </p>
     </div>
   )

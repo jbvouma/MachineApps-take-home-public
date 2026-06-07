@@ -80,6 +80,13 @@ describe('Controls', () => {
     expect(stop.mutate).toHaveBeenCalledTimes(1)
   })
 
+  it('disables Stop while homing so the return cannot be interrupted', () => {
+    renderWithQuery(
+      <Controls state="Seq_homing" moving={true} resumable={false} home={[0, 0, 0]} />,
+    )
+    expect(screen.getByRole('button', { name: /stop/i })).toBeDisabled()
+  })
+
   it('shows Resume and Discard for a resumable stop', async () => {
     const user = userEvent.setup()
     renderWithQuery(
