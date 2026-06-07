@@ -137,3 +137,68 @@ async def test_start_rejected_when_not_ready(app_runtime):
     assert resp.ok is False
     # Recover for other tests.
     machine.reset()
+
+
+async def test_stop_rejected_when_idle(app_runtime):
+    from app.api import commands
+
+    machine = app_runtime.get_machine()
+    if machine.state == "fault":
+        machine.reset()
+    resp = await commands.stop_sequence()
+    assert resp.ok is False
+    assert "nothing to stop" in resp.message.lower()
+
+
+async def test_stop_config_lock_and_resume(app_runtime, monkeypatch):
+    """Mid-sequence: config is locked, stop faults resumably, resume finishes the cycle."""
+    from app.api import commands
+
+    machine = app_runtime.get_machine()
+    controller = app_runtime.get_controller()
+    if machine.state != "ready":
+        machine.reset()
+
+    # Park each move until released, so the machine sits in a sequence leaf.
+    release = asyncio.Event()
+
+    async def blocking_move(target, speed):
+        controller._robot.current_position = list(target)
+        await release.wait()
+        return list(target)
+
+    monkeypatch.setattr(controller, "move_until_done", blocking_move)
+
+    assert (await commands.start_sequence()).ok is True
+    await asyncio.sleep(0.02)
+    assert machine.state.startswith("Seq_")
+
+    # setConfig must be rejected while the sequence runs.
+    cfg = commands.set_config(
+        commands.ConfigPayload(cube_start=[0, 0, 0], destination=[10, 10, 0])
+    )
+    assert cfg.ok is False
+    assert "locked" in cfg.message.lower()
+
+    # Stop faults the machine and marks it resumable.
+    stop = await commands.stop_sequence()
+    assert stop.ok is True
+    assert machine.state == "fault"
+    assert commands.get_status().resumable is True
+
+    # From here moves complete instantly; release the parked one and resume.
+    async def fast_move(target, speed):
+        controller._robot.current_position = list(target)
+        return list(target)
+
+    monkeypatch.setattr(controller, "move_until_done", fast_move)
+    release.set()
+
+    assert (await commands.resume_sequence()).ok is True
+
+    deadline = asyncio.get_event_loop().time() + 3.0
+    while machine.state != "ready":
+        if asyncio.get_event_loop().time() > deadline:
+            raise AssertionError(f"resume did not finish; stuck at {machine.state}")
+        await asyncio.sleep(0.005)
+    assert commands.get_status().resumable is False

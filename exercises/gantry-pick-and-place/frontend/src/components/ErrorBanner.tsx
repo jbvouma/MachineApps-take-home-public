@@ -3,13 +3,17 @@ import { useReset } from '../hooks/useReset'
 interface ErrorBannerProps {
   state: string
   errorMessage?: string
+  // True when the fault came from an operator stop; that case is handled by Controls
+  // (Resume / Discard), so the banner stays out of the way.
+  resumable?: boolean
   // Extra transient errors (e.g. failed RPC / network) surfaced from elsewhere.
   extraError?: string | null
 }
 
-const ErrorBanner = ({ state, errorMessage, extraError }: ErrorBannerProps) => {
+const ErrorBanner = ({ state, errorMessage, resumable, extraError }: ErrorBannerProps) => {
   const reset = useReset()
-  const isFault = state === 'fault' || Boolean(errorMessage)
+  // A deliberate stop is not an error; only surface genuine faults here.
+  const isFault = (state === 'fault' || Boolean(errorMessage)) && !resumable
 
   if (!isFault && !extraError) return null
 

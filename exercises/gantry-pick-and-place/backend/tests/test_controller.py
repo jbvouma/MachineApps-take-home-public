@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
-from app.robot.controller import MotionError, RobotController
+from app.robot.controller import MotionError, MotionStopped, RobotController
 
 
 async def test_move_converges_to_target():
@@ -49,3 +51,25 @@ async def test_safety_timeout_fires(monkeypatch):
     with pytest.raises(MotionError, match="timed out"):
         await ctrl.move_until_done([100, 0, 0], speed=50)
     assert ctrl.moving is False
+
+
+async def test_request_stop_aborts_in_flight_move():
+    """A slow move must abort promptly with MotionStopped once stop is requested."""
+    ctrl = RobotController(initial_position=[0, 0, 0], poll_interval=0.01)
+    # speed=1 over a 1000mm axis would take ~1000s, so it cannot converge on its own.
+    task = asyncio.create_task(ctrl.move_until_done([1000, 0, 0], speed=1))
+    await asyncio.sleep(0.05)
+    assert ctrl.moving is True
+    ctrl.request_stop()
+    with pytest.raises(MotionStopped):
+        await task
+    assert ctrl.moving is False
+
+
+async def test_stop_flag_resets_between_moves():
+    """A stop request must not leak into the next move."""
+    ctrl = RobotController(initial_position=[0, 0, 0], poll_interval=0.01)
+    ctrl.request_stop()
+    # The next move clears the flag at entry and should still converge normally.
+    final = await ctrl.move_until_done([50, 0, 0], speed=100)
+    assert final == [50, 0, 0]

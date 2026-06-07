@@ -8,6 +8,7 @@ export interface StatusResponse {
   gripper: GripperState
   state: string
   lastState: string | null
+  resumable: boolean
   cubeStart: Vec3
   destination: Vec3
   home: Vec3

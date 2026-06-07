@@ -18,6 +18,10 @@ MOVE_TIMEOUT_S: float = 30.0
 MOVE_POLL_INTERVAL_S: float = 0.02
 GRIPPER_SETTLE_S: float = 0.1
 
+# A move is "done" once every axis is within this distance of the target. This is our
+# own completion criterion, independent of the simulator's internal motion check.
+POSITION_TOLERANCE_MM: float = 1.0
+
 
 def _env(name: str, default: str) -> str:
     return os.environ.get(name, default)

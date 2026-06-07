@@ -23,6 +23,7 @@ const App = () => {
       <ErrorBanner
         state={status?.state ?? ''}
         errorMessage={status?.errorMessage}
+        resumable={status?.resumable}
         extraError={isError ? (error as Error).message : null}
       />
 
@@ -39,12 +40,13 @@ const App = () => {
               <Controls
                 state={status.state}
                 moving={status.moving}
+                resumable={status.resumable}
                 home={status.home}
               />
               <PositionForm
                 cubeStart={status.cubeStart}
                 destination={status.destination}
-                disabled={status.moving || status.state === 'fault'}
+                disabled={status.state !== 'ready' && status.state !== 'fault'}
               />
             </section>
           </div>

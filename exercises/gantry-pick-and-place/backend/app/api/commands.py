@@ -50,6 +50,7 @@ def get_status() -> StatusResponse:
         gripper=snap.gripper,
         state=machine.state,
         last_state=machine.get_last_state(),
+        resumable=machine.resumable,
         cube_start=list(ctx.cube_start),
         destination=list(ctx.destination),
         home=list(ctx.home),
@@ -92,6 +93,42 @@ async def reset_fault() -> CommandResponse:
     return _fire(st.RESET, "Fault reset", "Reset rejected")
 
 
+@action(name="stopSequence")
+async def stop_sequence() -> CommandResponse:
+    """Operator stop: halt motion mid-cycle and fault. Resumable afterwards."""
+    machine = get_machine()
+    logger.info("Command received: stopSequence (state=%s)", machine.state)
+    if not machine.request_abort():
+        return CommandResponse(
+            ok=False, message="Nothing to stop (robot is idle)", state=machine.state
+        )
+    return CommandResponse(ok=True, message="Sequence stopped", state=machine.state)
+
+
+@action(name="resumeSequence")
+async def resume_sequence() -> CommandResponse:
+    """Resume a sequence that was stopped by the operator, from where it halted."""
+    machine = get_machine()
+    logger.info("Command received: resumeSequence (state=%s)", machine.state)
+    if not machine.resume():
+        return CommandResponse(
+            ok=False, message="Nothing to resume", state=machine.state
+        )
+    return CommandResponse(ok=True, message="Sequence resumed", state=machine.state)
+
+
+@action(name="discardSequence")
+async def discard_sequence() -> CommandResponse:
+    """Discard a stopped sequence and home the robot to a known position."""
+    machine = get_machine()
+    logger.info("Command received: discardSequence (state=%s)", machine.state)
+    if not machine.discard():
+        return CommandResponse(
+            ok=False, message="Nothing to discard", state=machine.state
+        )
+    return CommandResponse(ok=True, message="Sequence discarded; homing", state=machine.state)
+
+
 @action(name="getConfig")
 def get_config() -> ConfigResponse:
     return _config_response(get_context())
@@ -101,6 +138,14 @@ def get_config() -> ConfigResponse:
 def set_config(payload: ConfigPayload) -> ConfigResponse:
     ctx = get_context()
     controller = get_controller()
+
+    # Config is only mutable while idle (ready) or faulted. Editing live trajectory
+    # inputs mid-sequence would corrupt an in-flight pick, so reject it.
+    machine = get_machine()
+    if machine.state not in (st.READY, st.FAULT):
+        return _config_response(
+            ctx, ok=False, message="Configuration locked while a sequence is running"
+        )
 
     # Fall back to current context values for omitted optional fields.
     home = payload.home if payload.home is not None else list(ctx.home)

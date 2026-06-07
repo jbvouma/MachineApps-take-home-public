@@ -25,6 +25,7 @@ class StatusResponse(CamelModel):
     gripper: str  # "open" | "closed"
     state: str
     last_state: str | None
+    resumable: bool
     cube_start: Vec3
     destination: Vec3
     home: Vec3
