@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSetConfig } from '../hooks/useSetConfig'
-import type { Vec3 } from '../api/types'
+import type { Position } from '../api/types'
 
 const AXIS_MIN = -1000
 const AXIS_MAX = 1000
@@ -9,12 +9,12 @@ type Axis = (typeof AXES)[number]
 type VecForm = Record<Axis, string>
 
 interface PositionFormProps {
-  cubeStart: Vec3
-  destination: Vec3
+  cubeStart: Position
+  destination: Position
   disabled?: boolean
 }
 
-const toForm = (v: Vec3): VecForm => ({
+const toForm = (v: Position): VecForm => ({
   x: String(v[0]),
   y: String(v[1]),
   z: String(v[2]),
@@ -28,7 +28,7 @@ const validateAxis = (raw: string): string | null => {
   return null
 }
 
-const toVec3 = (f: VecForm): Vec3 => [Number(f.x), Number(f.y), Number(f.z)]
+const toPosition = (f: VecForm): Position => [Number(f.x), Number(f.y), Number(f.z)]
 
 const VecFields = ({
   legend,
@@ -106,7 +106,7 @@ const PositionForm = ({ cubeStart, destination, disabled }: PositionFormProps) =
     e.preventDefault()
     if (hasErrors) return
     setConfig.mutate(
-      { cubeStart: toVec3(cube), destination: toVec3(dest) },
+      { cubeStart: toPosition(cube), destination: toPosition(dest) },
       { onSuccess: () => setTouched(false) },
     )
   }

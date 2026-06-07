@@ -1,17 +1,17 @@
-export type Vec3 = [number, number, number]
+export type Position = [number, number, number]
 
 export type GripperState = 'open' | 'closed'
 
 export interface StatusResponse {
-  position: Vec3
+  position: Position
   moving: boolean
   gripper: GripperState
   state: string
   lastState: string | null
   resumable: boolean
-  cubeStart: Vec3
-  destination: Vec3
-  home: Vec3
+  cubeStart: Position
+  destination: Position
+  home: Position
   errorMessage: string
 }
 
@@ -22,17 +22,17 @@ export interface CommandResponse {
 }
 
 export interface ConfigResponse {
-  cubeStart: Vec3
-  destination: Vec3
-  home: Vec3
+  cubeStart: Position
+  destination: Position
+  home: Position
   travelZ: number
   speed: number
 }
 
 export interface ConfigPayload {
-  cubeStart: Vec3
-  destination: Vec3
-  home?: Vec3
+  cubeStart: Position
+  destination: Position
+  home?: Position
   travelZ?: number
   speed?: number
 }

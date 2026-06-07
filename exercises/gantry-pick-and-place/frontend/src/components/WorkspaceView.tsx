@@ -1,4 +1,4 @@
-import type { StatusResponse, Vec3 } from '../api/types'
+import type { StatusResponse, Position } from '../api/types'
 
 // Origin at center, axes span -1000..1000 (robot hard limit), matching the backend.
 const WORLD_MIN = -1000
@@ -16,8 +16,8 @@ interface WorkspaceViewProps {
 }
 
 const WorkspaceView = ({ status }: WorkspaceViewProps) => {
-  const cube: Vec3 = status.cubeStart
-  const dest: Vec3 = status.destination
+  const cube: Position = status.cubeStart
+  const dest: Position = status.destination
   const [px, py] = status.position
 
   // Table A: 0.5m square centered in the upper-left quadrant (-600, 600).

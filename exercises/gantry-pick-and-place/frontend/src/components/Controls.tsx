@@ -1,13 +1,13 @@
 import { useHome } from '../hooks/useHome'
 import { useStart } from '../hooks/useStart'
 import { useStop, useResume, useDiscard } from '../hooks/useStop'
-import type { Vec3 } from '../api/types'
+import type { Position } from '../api/types'
 
 interface ControlsProps {
   state: string
   moving: boolean
   resumable: boolean
-  home: Vec3
+  home: Position
 }
 
 const Controls = ({ state, moving, resumable, home: homePos }: ControlsProps) => {

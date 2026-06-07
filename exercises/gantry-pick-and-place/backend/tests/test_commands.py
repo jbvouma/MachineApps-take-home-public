@@ -58,6 +58,28 @@ def test_get_status_shape(app_runtime):
     assert status.gripper in ("open", "closed")
 
 
+def test_rpc_wire_uses_camelcase(app_runtime):
+    """The frontend depends on camelCase keys; assert the real HTTP wire emits them.
+
+    Guards the CamelModel alias generator against a future pydantic/communication
+    version bump that would silently fall back to snake_case.
+    """
+    from starlette.testclient import TestClient
+
+    import main
+
+    path = next(
+        r.path for r in main.app.routes if getattr(r, "path", "").endswith("/getStatus")
+    )
+    body = TestClient(main.app).post(path, json={}).json()
+
+    for camel in ("cubeStart", "lastState", "errorMessage"):
+        assert camel in body, f"missing {camel}; got {sorted(body)}"
+    for snake in ("cube_start", "last_state", "error_message"):
+        assert snake not in body
+    assert body["gripper"] in ("open", "closed")
+
+
 def test_set_config_roundtrip(app_runtime):
     from app.api import commands
 
