@@ -1,0 +1,39 @@
+# Full stack: a single `docker compose up` starts backend + frontend together.
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      LOG_LEVEL: INFO
+      # Four slashes = sqlite:// + absolute path /data/storage.db (on the named volume).
+      VENTION_STORAGE_DATABASE_URL: sqlite:////data/storage.db
+    volumes:
+      - gantry-data:/data
+    healthcheck:
+      # python:3.10-slim has no curl, so probe /health with stdlib urllib.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      # The browser talks to the host-published backend port.
+      VITE_API_BASE_URL: http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+
+# Backs the backend SQLite DB so config persists across restarts.
+volumes:
+  gantry-data:

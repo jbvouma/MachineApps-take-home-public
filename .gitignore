@@ -148,3 +148,13 @@ dist
 # OS
 .DS_Store
 Thumbs.db
+
+# Gantry pick-and-place: backend SQLite storage
+storage.db
+*.db
+*.db-journal
+
+# Generated proto output (if any)
+**/proto/*_pb2.py
+**/proto/*_pb2.pyi
+**/proto/*_pb2_grpc.py
