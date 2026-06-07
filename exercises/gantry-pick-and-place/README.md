@@ -11,7 +11,7 @@ pointing down.
 ## Architecture
 
 ```
-            HTTP (Connect RPC, polling ~250ms)
+            HTTP (Connect RPC, adaptive polling 250ms/1s)
   Browser  <------------------------------------>  Backend (FastAPI / VentionApp)
   React + TS                                         |
   React Query + axios                                +-- vention-state-machine  (pick-and-place sequence)
@@ -25,7 +25,8 @@ pointing down.
   move completes, then fires the next trigger. Config is persisted with `vention-storage`
   in a SQLite database.
 - Frontend: a Vite React + TypeScript app. A thin `rpc()` axios helper posts to the
-  Connect unary endpoints. React Query polls `getStatus` (~250ms) for telemetry, and
+  Connect unary endpoints. React Query polls `getStatus` (250ms while active, 1s when
+  idle) for telemetry, and
   mutations wrap the action commands. A top-down SVG renders the workspace, tables, robot,
   and cube, with a state badge and an error banner.
 
@@ -122,17 +123,18 @@ Other mounted routes:
 - `/db` from storage: CRUD plus `GET /db/health`, `GET /db/audit`.
 - `/docs` for the OpenAPI explorer.
 
-Action names are camelCase in the JSON contract; the communication library auto-aliases
-Python snake_case to camelCase, so the frontend and `/docs` see `getStatus`, `homeRobot`,
-and so on.
+Action names are declared camelCase directly (`@action(name="getStatus")`), and the
+response/request field names are camelCased by our own models (see below), so the
+frontend and `/docs` see `getStatus`, `cubeStart`, `lastState`, and so on.
 
 ## Design decisions and trade-offs
 
 - Why Docker: the Vention libraries (`vention-communication`, `vention-state-machine`,
-  `vention-storage`) all require Python `>=3.10,<3.11`. The dev machine runs a newer
-  Python, so a `python:3.10-slim` container is the canonical, reproducible runtime. Native
-  runs are documented as a fallback for anyone with pyenv 3.10.
-- Polling, not streaming: the frontend polls `getStatus` (~250ms) over plain HTTP, and
+  `vention-storage`) all require Python `>=3.10,<3.11`. A `python:3.10-slim` container
+  pins that exact interpreter as the canonical, reproducible runtime regardless of the
+  host's Python. Native runs are documented as a fallback for anyone with pyenv 3.10.
+- Polling, not streaming: the frontend polls `getStatus` over plain HTTP, adaptively at
+  250ms while the robot is active and backing off to 1s when idle at `ready`/`fault`, and
   after each mutation we invalidate the status query so the UI reflects commands quickly.
   This was a deliberate choice for simplicity and robustness. The `vention-communication`
   library also offers a server-push `@stream` primitive; consuming it would mean parsing
@@ -147,11 +149,23 @@ and so on.
 - Persistence: configuration (cube start, destination, home, travel height, speed) is
   stored via `vention-storage` in SQLite on a named Docker volume, so it survives restarts.
 - camelCase JSON contract: the frontend gets an idiomatic camelCase API while the backend
-  stays snake_case. The response models set a camelCase alias generator explicitly
-  (`alias_generator=to_camel`, `populate_by_name=True`) so `model_dump(by_alias=True)`
-  emits camelCase. We do this in our models rather than rely on the communication
-  library's own post-hoc aliasing, which does not take effect under this pydantic version.
-  Action names are declared camelCase directly (`@action(name="getStatus")`).
+  stays snake_case. Our `CamelModel` base sets a camelCase alias generator at class
+  creation (`alias_generator=to_camel`, `populate_by_name=True`) so
+  `model_dump(by_alias=True)` emits camelCase. We do this in our models rather than reuse
+  anything from `vention-communication`: the package exposes no shared request/response
+  types (its `__init__` is empty, and `@action` just introspects whatever models we
+  annotate). Its one type helper, `apply_aliases`, mutates `FieldInfo.alias` after the
+  model is built and forces a rebuild, but under the resolved pydantic (2.13.4) that does
+  not regenerate the serialization aliases already baked into the core schema, so the wire
+  would still carry snake_case. An `alias_generator` participates in the initial schema
+  build, so it works. `tests/test_commands.py::test_rpc_wire_uses_camelcase` asserts the
+  camelCase keys on the real HTTP wire, so a future pydantic/library bump that changes
+  either behaviour fails loudly instead of silently shipping snake_case. Action names are
+  declared camelCase directly (`@action(name="getStatus")`).
+- `gripper` is a bounded `str` enum (`GripperState`: `open`/`closed`) so the contract is
+  self-documenting and validated. `state` stays a plain `str`: its values come from the
+  state-machine library (`ready`, `fault`, `Seq_movingToCube`, ...) and an enum would
+  drift from that source of truth.
 
 ## Bonus items covered
 
