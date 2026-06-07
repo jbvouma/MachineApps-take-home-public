@@ -9,6 +9,8 @@ const SERVICE = 'vention.app.v1.GantryPickAndPlaceService'
 export const api = axios.create({
   baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
+  // Fail fast on a hung backend instead of leaving a request pending forever.
+  timeout: 5000,
 })
 
 // The backend returns HTTP 200 even on handler errors, with an {error} envelope.
