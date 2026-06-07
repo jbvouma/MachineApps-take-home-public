@@ -1,3 +1,198 @@
+# Gantry Pick & Place
+
+A proof-of-concept for a 3-axis gantry robot that picks a cube from Table A and places it
+on Table B. A Python/FastAPI backend drives a simulated robot through a state machine, and
+a React + TypeScript frontend visualizes and configures the operation live.
+
+The robot motion is simulated (no real hardware). The workspace is a 2m x 2m top-down
+footprint; coordinates are millimeters on axes `[X, Y, Z]` with Z up and the gripper
+pointing down.
+
+## Architecture
+
+```
+            HTTP (Connect RPC, adaptive polling 250ms/1s)
+  Browser  <------------------------------------>  Backend (FastAPI / VentionApp)
+  React + TS                                         |
+  React Query + axios                                +-- vention-state-machine  (pick-and-place sequence)
+  top-down SVG view                                  +-- vention-storage        (SQLite config persistence)
+                                                     +-- robot_sim (move_to polling loop)
+```
+
+- Backend: a `VentionApp` (FastAPI) exposes RPC commands under `/rpc`. The control logic
+  is a `vention-state-machine` driving the pick-and-place sequence. Each motion state
+  spawns an async loop that calls `robot_sim.move_to(target, speed)` repeatedly until the
+  move completes, then fires the next trigger. Config is persisted with `vention-storage`
+  in a SQLite database.
+- Frontend: a Vite React + TypeScript app. A thin `rpc()` axios helper posts to the
+  Connect unary endpoints. React Query polls `getStatus` (250ms while active, 1s when
+  idle) for telemetry, and
+  mutations wrap the action commands. A top-down SVG renders the workspace, tables, robot,
+  and cube, with a state badge and an error banner.
+
+## Pick-and-place sequence
+
+The state machine adds these states to the built-in `ready` and `fault`:
+
+```
+ready --start--> moving_to_cube --> lowering_to_cube --> closing_gripper
+   --> lifting_with_cube --> moving_to_destination --> lowering_to_destination
+   --> opening_gripper --> lifting_clear --> (cycle_complete) --> ready
+
+homing:  any non-fault --home--> homing --> ready
+fault:   any --to_fault--> fault ;  fault --reset--> ready
+```
+
+- Each `moving_*` / `lowering_*` / `lifting_*` state polls `move_to` until the target is
+  reached, then advances.
+- `closing_gripper` / `opening_gripper` actuate the gripper, then advance.
+- Any handler exception triggers `to_fault` with an error message. `fault` is recoverable
+  via `reset`.
+- `home` is accepted from `ready` (and after a fault reset) but rejected mid-sequence so a
+  live pick is never interrupted.
+
+## Setup and run
+
+### Docker (canonical path)
+
+The backend libraries require Python 3.10, so Docker is the source of truth. A single
+command builds and starts the whole stack:
+
+```bash
+docker compose up --build
+# or:
+make up
+```
+
+Then open:
+
+- Frontend: http://localhost:5173
+- Backend: http://localhost:8000
+- API docs (OpenAPI): http://localhost:8000/docs
+- State machine diagram: http://localhost:8000/sm/diagram.svg
+
+The frontend waits for the backend healthcheck (`GET /health`) before starting. Config is
+stored in a named volume (`gantry-data`), so it survives `docker compose down` and restarts.
+
+Stop the stack with `make down`, tail logs with `make logs`.
+
+### Native (no Docker)
+
+The backend requires Python 3.10 (`>=3.10,<3.11`); use pyenv if your system Python differs.
+`make dev` prints the exact steps. In short:
+
+```bash
+# Backend (Python 3.10)
+cd backend && python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+# Frontend (second terminal)
+cd frontend && npm install && npm run dev
+```
+
+## Tests
+
+```bash
+make test            # backend + frontend
+make test-backend    # docker compose run --rm backend pytest -q
+make test-frontend   # docker compose run --rm frontend npm test --silent
+```
+
+Backend tests use pytest (state transitions, motion polling, API actions). Frontend tests
+use Vitest + React Testing Library for the main action controls.
+
+## API surface
+
+RPC actions (Connect surface under `/rpc/...`):
+
+| Action | Input | Effect |
+|---|---|---|
+| `getStatus` | none | Full telemetry snapshot (position, moving, gripper, state, positions, error) |
+| `homeRobot` | none | Trigger `home` (move to home position) |
+| `startSequence` | none | Trigger `start`; rejected if not in `ready` |
+| `resetFault` | none | Trigger `reset` to recover from `fault` |
+| `getConfig` | none | Current persisted config |
+| `setConfig` | config payload | Validate, persist, update the live context |
+
+Other mounted routes:
+
+- `GET /health` for container healthchecks.
+- `/sm` from the state machine router: `GET /sm/state`, `GET /sm/history`,
+  `GET /sm/diagram.svg`.
+- `/db` from storage: CRUD plus `GET /db/health`, `GET /db/audit`.
+- `/docs` for the OpenAPI explorer.
+
+Action names are declared camelCase directly (`@action(name="getStatus")`), and the
+response/request field names are camelCased by our own models (see below), so the
+frontend and `/docs` see `getStatus`, `cubeStart`, `lastState`, and so on.
+
+## Design decisions and trade-offs
+
+- Why Docker: the Vention libraries (`vention-communication`, `vention-state-machine`,
+  `vention-storage`) all require Python `>=3.10,<3.11`. A `python:3.10-slim` container
+  pins that exact interpreter as the canonical, reproducible runtime regardless of the
+  host's Python. Native runs are documented as a fallback for anyone with pyenv 3.10.
+- Polling, not streaming: the frontend polls `getStatus` over plain HTTP, adaptively at
+  250ms while the robot is active and backing off to 1s when idle at `ready`/`fault`, and
+  after each mutation we invalidate the status query so the UI reflects commands quickly.
+  This was a deliberate choice for simplicity and robustness. The `vention-communication`
+  library also offers a server-push `@stream` primitive; consuming it would mean parsing
+  Connect stream frames on the client plus reconnect/fallback handling. For a single-cube
+  proof of concept the polling cadence is more than sufficient, so streaming is left as a
+  documented extension rather than carried as code that nothing consumes.
+- State-machine-driven motion polling: `robot_sim.move_to` integrates position from
+  wall-clock time and must be called repeatedly until motion completes. Each motion state
+  owns an async loop that calls `move_to` until the target is reached (or `axis_speed`
+  zeroes out), with a safety timeout, rather than trusting the simulator's internal
+  completion check. `robot_sim.py` is used unmodified.
+- Persistence: configuration (cube start, destination, home, travel height, speed) is
+  stored via `vention-storage` in SQLite on a named Docker volume, so it survives restarts.
+- camelCase JSON contract: the frontend gets an idiomatic camelCase API while the backend
+  stays snake_case. Our `CamelModel` base sets a camelCase alias generator at class
+  creation (`alias_generator=to_camel`, `populate_by_name=True`) so
+  `model_dump(by_alias=True)` emits camelCase. We do this in our models rather than reuse
+  anything from `vention-communication`: the package exposes no shared request/response
+  types (its `__init__` is empty, and `@action` just introspects whatever models we
+  annotate). Its one type helper, `apply_aliases`, mutates `FieldInfo.alias` after the
+  model is built and forces a rebuild, but under the resolved pydantic (2.13.4) that does
+  not regenerate the serialization aliases already baked into the core schema, so the wire
+  would still carry snake_case. An `alias_generator` participates in the initial schema
+  build, so it works. `tests/test_commands.py::test_rpc_wire_uses_camelcase` asserts the
+  camelCase keys on the real HTTP wire, so a future pydantic/library bump that changes
+  either behaviour fails loudly instead of silently shipping snake_case. Action names are
+  declared camelCase directly (`@action(name="getStatus")`).
+- `gripper` is a bounded `str` enum (`GripperState`: `open`/`closed`) so the contract is
+  self-documenting and validated. `state` stays a plain `str`: its values come from the
+  state-machine library (`ready`, `fault`, `Seq_movingToCube`, ...) and an enum would
+  drift from that source of truth.
+
+## Bonus items covered
+
+- Persistence: config survives a backend restart via `vention-storage` SQLite on a named
+  volume.
+- Tests: backend pytest suite and frontend Vitest component tests.
+- Containerization: a single `docker compose up` brings up the whole stack, with the
+  frontend depending on the backend's health.
+- Demo: a short screen recording of home, configure, run sequence, and fault/reset.
+  Demo video: TODO (link to be added).
+
+## Assumptions
+
+- Coordinates are in millimeters; the workspace is a 2m x 2m footprint. Because the
+  robot's hard limit is `±1000` mm per axis, the origin is the workspace center (robot
+  home) and axes run `-1000..1000`. Table A is the upper-left quadrant, Table B the
+  lower-right.
+- Default positions: home `[0, 0, 0]`, cube start `[-600, 600, 0]`,
+  destination `[600, -600, 0]`, travel height `200`, speed `90` mm/s.
+- A single cube is picked and placed (no multi-cube batching).
+- Axis positions are validated against `±1000` limits and speed against `0..100` before
+  reaching the robot.
+
+---
+
+## Original exercise brief
+
 # **Robot Pick & Place Simulation**
 
 ## **Problem Statement**
