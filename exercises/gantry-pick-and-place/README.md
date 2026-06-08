@@ -41,6 +41,8 @@ ready --start--> moving_to_cube --> lowering_to_cube --> closing_gripper
 
 homing:  any non-fault --home--> homing --> ready
 fault:   any --to_fault--> fault ;  fault --reset--> ready
+stop:    mid-sequence --stop--> fault (resumable) --resume--> (halted leaf)
+                                            \--discard--> homing --> ready
 ```
 
 - Each `moving_*` / `lowering_*` / `lifting_*` state polls `move_to` until the target is
@@ -50,6 +52,12 @@ fault:   any --to_fault--> fault ;  fault --reset--> ready
   via `reset`.
 - `home` is accepted from `ready` (and after a fault reset) but rejected mid-sequence so a
   live pick is never interrupted.
+- **Operator stop / resume / discard:** `stop` halts the current move and faults the
+  machine, but flags the fault as *resumable*. From a resumable stop the operator can
+  `resume` (continue from the leaf state where it halted, via last-state recovery) or
+  `discard` (abandon the cycle and home the robot to a known position). The resumable flag
+  is set only on a deliberate stop and cleared on reaching `ready`, so an *error* fault
+  (handler exception) is recoverable only via `reset`, never `resume`.
 
 ## Setup and run
 
@@ -111,6 +119,9 @@ RPC actions (Connect surface under `/rpc/...`):
 | `getStatus` | none | Full telemetry snapshot (position, moving, gripper, state, positions, error) |
 | `homeRobot` | none | Trigger `home` (move to home position) |
 | `startSequence` | none | Trigger `start`; rejected if not in `ready` |
+| `stopSequence` | none | Operator stop: halt motion mid-cycle and fault; resumable afterwards. No-op if idle |
+| `resumeSequence` | none | Resume an operator-stopped sequence from where it halted. No-op if nothing to resume |
+| `discardSequence` | none | Discard a stopped sequence and home the robot to a known position. No-op if nothing to discard |
 | `resetFault` | none | Trigger `reset` to recover from `fault` |
 | `getConfig` | none | Current persisted config |
 | `setConfig` | config payload | Validate, persist, update the live context |
@@ -146,6 +157,18 @@ frontend and `/docs` see `getStatus`, `cubeStart`, `lastState`, and so on.
   owns an async loop that calls `move_to` until the target is reached (or `axis_speed`
   zeroes out), with a safety timeout, rather than trusting the simulator's internal
   completion check. `robot_sim.py` is used unmodified.
+- Motion tuning constants (in `app/config.py`): a move is considered complete once every
+  axis is within `POSITION_TOLERANCE_MM = 1.0` mm of the target (our own criterion,
+  independent of the simulator); the per-state move loop polls every
+  `MOVE_POLL_INTERVAL_S = 0.02` s (20 ms) and aborts to a fault if a single move exceeds
+  `MOVE_TIMEOUT_S = 30.0` s; the gripper waits `GRIPPER_SETTLE_S = 0.1` s to settle before
+  advancing. These are deliberately conservative defaults for a simulated robot and live in
+  one place so they are easy to retune.
+- Operator stop semantics: a `stop` is modeled as a *resumable* fault rather than a hard
+  reset, so an interrupted cycle can either continue from where it halted (`resume`, using
+  the state machine's last-state recovery) or be abandoned cleanly (`discard`, which homes
+  the robot). A `_resumable` flag distinguishes an operator stop from an error fault so the
+  UI only offers `resume` when it is actually safe.
 - Persistence: configuration (cube start, destination, home, travel height, speed) is
   stored via `vention-storage` in SQLite on a named Docker volume, so it survives restarts.
 - camelCase JSON contract: the frontend gets an idiomatic camelCase API while the backend
