@@ -1,4 +1,4 @@
-import { classifyState, humanizeState } from '../lib/state'
+import { classifyState, humanizeState } from '../utils/state'
 
 interface StateBadgeProps {
   state: string

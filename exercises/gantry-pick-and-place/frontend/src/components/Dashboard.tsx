@@ -1,5 +1,5 @@
 import type { StatusResponse } from '../api/types'
-import { humanizeState } from '../lib/state'
+import { humanizeState } from '../utils/state'
 
 const round = (n: number) => Math.round(n)
 
